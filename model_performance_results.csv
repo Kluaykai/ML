@@ -1,0 +1,4 @@
+﻿Model,R2_Score,CV_R2_Mean,RMSE,MAE
+Linear Regression,0.8422,0.8306,2161.49,1738.61
+Random Forest,0.8096,0.7854,2374.48,1916.67
+Neural Network (MLP),0.6974,0.6849,2993.45,2416.58

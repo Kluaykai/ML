@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
@@ -14,30 +14,22 @@ warnings.filterwarnings('ignore')
 
 df = pd.read_csv('Car_Price_Prediction.csv')
 
-missing_count = df.isnull().sum().sum()
-if missing_count > 0:
-    df = df.dropna()
-
-anomalies = df[(df['Price'] <= 0) | (df['Mileage'] < 0) | (df['Engine Size'] <= 0)]
-if not anomalies.empty:
-    df = df[(df['Price'] > 0) & (df['Mileage'] >= 0) & (df['Engine Size'] > 0)]
+df = df.dropna()
+df = df[(df['Price'] > 0) & (df['Mileage'] >= 0) & (df['Engine Size'] > 0)]
 
 Q1 = df['Price'].quantile(0.25)
 Q3 = df['Price'].quantile(0.75)
 IQR = Q3 - Q1
-lower_bound = Q1 - 1.5 * IQR
-upper_bound = Q3 + 1.5 * IQR
-df = df[(df['Price'] >= lower_bound) & (df['Price'] <= upper_bound)]
+df = df[(df['Price'] >= Q1 - 1.5 * IQR) & (df['Price'] <= Q3 + 1.5 * IQR)]
 
 df['Car_Age'] = 2026 - df['Year']
 
 le = LabelEncoder()
-cat_cols = ['Make', 'Model', 'Fuel Type', 'Transmission']
-for col in cat_cols:
+for col in ['Make', 'Model', 'Fuel Type', 'Transmission']:
     df[col] = le.fit_transform(df[col])
 
 df_prepared = df.drop(columns=['Year'])
-df_prepared.to_csv('transformed_car_data.csv', index=False, encoding='utf-8-sig')
+df_prepared.to_csv('prepared_car_data.csv', index=False, encoding='utf-8-sig')
 
 X = df_prepared.drop(['Price'], axis=1)
 y = df_prepared['Price']
@@ -55,39 +47,57 @@ models = {
 }
 
 results = []
-
 for name, model in models.items():
     model.fit(X_train_scaled, y_train)
     y_pred = model.predict(X_test_scaled)
-    
-    r2 = r2_score(y_test, y_pred)
-    mse = mean_squared_error(y_test, y_pred)
-    mae = mean_absolute_error(y_test, y_pred)
-    rmse = np.sqrt(mse)
+    cv_scores = cross_val_score(model, X_train_scaled, y_train, cv=5, scoring='r2')
     
     results.append({
         "Model": name,
-        "R2_Score": round(r2, 4),
-        "RMSE": round(rmse, 2),
-        "MAE": round(mae, 2),
-        "MSE": round(mse, 2)
+        "R2_Score": round(r2_score(y_test, y_pred), 4),
+        "CV_R2_Mean": round(cv_scores.mean(), 4),
+        "RMSE": round(np.sqrt(mean_squared_error(y_test, y_pred)), 2),
+        "MAE": round(mean_absolute_error(y_test, y_pred), 2)
     })
 
 results_df = pd.DataFrame(results)
-results_df.to_csv('car_model_comparison.csv', index=False, encoding='utf-8-sig')
+results_df.to_csv('model_performance_results.csv', index=False, encoding='utf-8-sig')
+print(results_df.to_string(index=False))
+
+plt.figure(figsize=(10, 6))
+feat_importances = pd.Series(models["Random Forest"].feature_importances_, index=X.columns)
+feat_importances.nlargest(10).plot(kind='barh', color='teal')
+plt.title('Top Factors Affecting Price')
+plt.savefig('car_feature_importance.png')
+
+plt.figure(figsize=(8, 8))
+plt.scatter(y_test, models["Random Forest"].predict(X_test_scaled), alpha=0.5, color='orange')
+plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'k--', lw=2)
+plt.xlabel('Actual Price')
+plt.ylabel('Predicted Price')
+plt.title('Actual vs Predicted Prices')
+plt.savefig('car_actual_vs_predicted.png')
 
 plt.figure(figsize=(10, 6))
 sns.barplot(x='Model', y='R2_Score', data=results_df, palette='magma')
-plt.title('Comparison of R2 Score (Car Price Prediction)')
-plt.ylim(0, 1.0)
+plt.title('Comparison of R2 Score')
 plt.savefig('car_r2_comparison.png')
 
-fig, ax = plt.subplots(figsize=(10, 3))
+fig, ax = plt.subplots(figsize=(12, 4))
 ax.axis('off')
-table = ax.table(cellText=results_df.values, colLabels=results_df.columns, loc='center', cellLoc='center')
-table.auto_set_font_size(False)
-table.set_fontsize(12)
-table.scale(1.2, 2)
-plt.savefig('car_result_table.png', bbox_inches='tight', dpi=300)
+the_table = ax.table(cellText=results_df.values, colLabels=results_df.columns, loc='center', cellLoc='center')
+the_table.auto_set_font_size(False)
+the_table.set_fontsize(12)
+the_table.scale(1.2, 2.5)
 
-print(results_df.to_string(index=False))
+for (row, col), cell in the_table.get_celld().items():
+    if row == 0:
+        cell.set_text_props(weight='bold', color='white')
+        cell.set_facecolor('#2c3e50')
+    else:
+        cell.set_facecolor('#f2f2f2')
+
+plt.title('Final Model Performance Summary', fontsize=16, pad=20, weight='bold')
+plt.savefig('model_performance_table.png', bbox_inches='tight', dpi=300)
+
+print("\nAll files and visualizations have been generated successfully.")
