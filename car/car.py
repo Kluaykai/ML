@@ -10,69 +10,95 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.neural_network import MLPRegressor
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 
-# ปิดการแจ้งเตือนคำเตือน
+# ปิดการแจ้งเตือนเพื่อความสะอาดของหน้าจอ
 warnings.filterwarnings('ignore')
 
-# ==========================================
-# 1. การสำรวจและโหลดข้อมูล (Data Exploration)
-# ==========================================
-print("--- [1] กำลังโหลดและสำรวจข้อมูล ---")
-try:
-    df = pd.read_csv('Car_Price_Prediction.csv')
-    print(f"โหลดข้อมูลสำเร็จ: {len(df)} แถว")
-except FileNotFoundError:
-    print("Error: ไม่พบไฟล์ Car_Price_Prediction.csv ในโฟลเดอร์")
-    exit()
+# 1. โหลดข้อมูล
+print("--- [1] โหลดข้อมูลจากไฟล์ CSV ---")
+df = pd.read_csv('Car_Price_Prediction.csv')
 
-# ==========================================
-# 2. การเตรียมข้อมูล & Feature Engineering
-# ==========================================
-print("--- [2] กำลังจัดการข้อมูลและสร้างคุณสมบัติใหม่ ---")
-# จัดการค่าว่าง
-df = df.dropna()
+# ==========================================================
+# 2. ขั้นตอนการตรวจสอบและทำความสะอาดข้อมูล (Data Cleaning & Checking)
+# ==========================================================
+print("\n--- [2] เริ่มขั้นตอนการตรวจสอบคุณภาพข้อมูล (Data Quality Check) ---")
 
-# สร้างตัวแปร อายุรถ (Car_Age) โดยอ้างอิงปี 2026
+# 2.1 ตรวจสอบค่าว่าง (Missing Values)
+missing_count = df.isnull().sum().sum()
+print(f"- ตรวจสอบค่าว่าง: พบ {missing_count} จุด")
+if missing_count > 0:
+    df = df.dropna()
+    print("  (ทำการลบแถวที่มีค่าว่างออกเรียบร้อยแล้ว)")
+
+# 2.2 ตรวจสอบค่าที่ผิดตรรกะ (Logical Anomaly Check)
+# เช็คว่ามีราคา หรือ เลขไมล์ ติดลบหรือเป็นศูนย์หรือไม่
+anomalies = df[(df['Price'] <= 0) | (df['Mileage'] < 0) | (df['Engine Size'] <= 0)]
+if not anomalies.empty:
+    print(f"- พบข้อมูลผิดตรรกะ {len(anomalies)} แถว (กำลังลบออก...)")
+    df = df[(df['Price'] > 0) & (df['Mileage'] >= 0) & (df['Engine Size'] > 0)]
+else:
+    print("- ตรวจสอบค่าผิดตรรกะ: ไม่พบความผิดปกติ (ราคา, เลขไมล์ และขนาดเครื่องยนต์ถูกต้อง)")
+
+# 2.3 ตรวจสอบและจัดการค่าที่สูง/ต่ำผิดปกติ (Outlier Detection using IQR)
+# เราจะใช้สูตรสถิติ IQR เพื่อหาค่าที่กระโดดออกจากกลุ่มมากเกินไปในคอลัมน์ Price
+Q1 = df['Price'].quantile(0.25)
+Q3 = df['Price'].quantile(0.75)
+IQR = Q3 - Q1
+lower_bound = Q1 - 1.5 * IQR
+upper_bound = Q3 + 1.5 * IQR
+
+outliers = df[(df['Price'] < lower_bound) | (df['Price'] > upper_bound)]
+print(f"- ตรวจสอบ Outliers: พบราคาที่โดดผิดปกติ {len(outliers)} แถว")
+
+# กรองเอาเฉพาะข้อมูลที่อยู่ในช่วงปกติเพื่อความแม่นยำของโมเดล
+df = df[(df['Price'] >= lower_bound) & (df['Price'] <= upper_bound)]
+print(f"--- สรุป: คงเหลือข้อมูลคุณภาพดีทั้งหมด {len(df)} แถว ---")
+
+# ==========================================================
+# 3. เตรียมข้อมูลและสร้างคุณสมบัติใหม่ (Feature Engineering)
+# ==========================================================
+print("\n--- [3] การเตรียมข้อมูล (Preprocessing) ---")
+
+# สร้างตัวแปร อายุรถ (Car_Age) โดยอ้างอิงปีปัจจุบัน 2026
 df['Car_Age'] = 2026 - df['Year']
 
-# แปลงข้อมูลตัวอักษรเป็นตัวเลข (Encoding)
+# แปลงข้อมูลตัวอักษรเป็นตัวเลข (Encoding) เพื่อให้ AI คำนวณได้
 le = LabelEncoder()
 cat_cols = ['Make', 'Model', 'Fuel Type', 'Transmission']
 for col in cat_cols:
     df[col] = le.fit_transform(df[col])
 
-# เลือกตัวแปรต้น (X) และตัวแปรเป้าหมาย (y)
-X = df.drop(['Price', 'Year'], axis=1) # ลบ Price เพราะเป็นคำตอบ และ Year เพราะใช้ Car_Age แทนแล้ว
+# แยกตัวแปรต้น (X) และตัวแปรเป้าหมาย (y)
+# เราลบ Year ออกเพราะใช้ Car_Age แทนแล้ว และลบ Price ออกเพราะเป็นคำถาม
+X = df.drop(['Price', 'Year'], axis=1)
 y = df['Price']
 
-# แบ่งข้อมูลสำหรับฝึกสอนและทดสอบ (80/20)
+# แบ่งข้อมูลสำหรับ Train (80%) และ Test (20%)
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# การปรับมาตรฐานข้อมูล (Scaling) - สำคัญมากสำหรับ Neural Network
+# การปรับมาตรฐานข้อมูล (Scaling) ให้ทุกตัวแปรอยู่ในสเกลเดียวกัน
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test)
 
-# ==========================================
-# 3. การสร้างโมเดล (Model Development)
-# ==========================================
-print("--- [3] กำลังฝึกสอนโมเดลทั้ง 3 รูปแบบ ---")
+# ==========================================================
+# 4. การสร้างและประเมินผลโมเดล (Model Training & Evaluation)
+# ==========================================================
+print("\n--- [4] กำลังฝึกสอนโมเดล 3 รูปแบบตามเงื่อนไขโปรเจค ---")
+
 models = {
     "Linear Regression": LinearRegression(),
     "Random Forest": RandomForestRegressor(n_estimators=100, random_state=42),
     "Neural Network (MLP)": MLPRegressor(hidden_layer_sizes=(64, 32), max_iter=1000, random_state=42)
 }
 
-# ==========================================
-# 4. การประเมินผล (Model Evaluation)
-# ==========================================
-print("--- [4] กำลังประเมินผลลัพธ์ ---")
 results = []
+
 for name, model in models.items():
-    print(f"รันโมเดล: {name}...")
+    print(f"กำลังรัน: {name}...")
     model.fit(X_train_scaled, y_train)
     y_pred = model.predict(X_test_scaled)
     
-    # คำนวณค่าสถิติต่างๆ
+    # คำนวณค่าสถิติวัดผล
     r2 = r2_score(y_test, y_pred)
     mse = mean_squared_error(y_test, y_pred)
     mae = mean_absolute_error(y_test, y_pred)
@@ -81,41 +107,40 @@ for name, model in models.items():
     results.append({
         "Model": name,
         "R2_Score": round(r2, 4),
-        "MSE": round(mse, 2),
+        "RMSE": round(rmse, 2),
         "MAE": round(mae, 2),
-        "RMSE": round(rmse, 2)
+        "MSE": round(mse, 2)
     })
 
+# ==========================================================
+# 5. การสร้าง Output สำหรับรายงาน (Graphs & Tables)
+# ==========================================================
 results_df = pd.DataFrame(results)
 
-# ==========================================
-# 5. การบันทึกผลลัพธ์ (Output Generation)
-# ==========================================
-# 5.1 บันทึกเป็นไฟล์ CSV (สำหรับเปิดใน Excel)
+# 5.1 บันทึกตารางเป็นไฟล์ CSV สำหรับ Excel
 results_df.to_csv('car_model_comparison.csv', index=False, encoding='utf-8-sig')
 
-# 5.2 บันทึกเป็นรูปภาพกราฟแท่ง
+# 5.2 สร้างกราฟแท่งเปรียบเทียบ R2 Score (ความแม่นยำ)
 plt.figure(figsize=(10, 6))
-sns.barplot(x='Model', y='R2_Score', data=results_df, palette='viridis')
-plt.title('Comparison of R2 Score (Accuracy)')
-plt.ylim(0, 1.1)
-plt.savefig('car_r2_plot.png')
+sns.barplot(x='Model', y='R2_Score', data=results_df, palette='magma')
+plt.title('Comparison of R2 Score (Car Price Prediction)')
+plt.ylim(0, 1.0) # สเกล 0 ถึง 1 เพื่อให้เห็นความต่างชัดเจน
+plt.savefig('car_r2_comparison.png')
 
-# 5.3 บันทึกตารางสรุปผลเป็นรูปภาพ (เพื่อให้แปะในรายงานได้ทันที)
-fig, ax = plt.subplots(figsize=(10, 2))
+# 5.3 สร้างรูปภาพตารางสรุปผล (Table Image) เพื่อแปะใน Word ได้ทันที
+fig, ax = plt.subplots(figsize=(10, 3))
 ax.axis('off')
 table = ax.table(cellText=results_df.values, colLabels=results_df.columns, loc='center', cellLoc='center')
 table.auto_set_font_size(False)
-table.set_fontsize(10)
-table.scale(1.2, 1.5)
-plt.savefig('car_table_image.png', bbox_inches='tight', dpi=300)
+table.set_fontsize(12)
+table.scale(1.2, 2)
+plt.title('Model Performance Summary', pad=20)
+plt.savefig('car_result_table.png', bbox_inches='tight', dpi=300)
 
-print("\n" + "="*40)
-print("สรุปผลการรันสำเร็จ!")
-print("-" * 40)
+print("\n" + "="*50)
+print("รันเสร็จสมบูรณ์! ตรวจสอบไฟล์ผลลัพธ์ในโฟลเดอร์:")
+print("1. car_model_comparison.csv (เปิดใน Excel)")
+print("2. car_r2_comparison.png (กราฟแท่ง)")
+print("3. car_result_table.png (รูปตารางสรุปสำหรับแปะรายงาน)")
+print("="*50)
 print(results_df.to_string(index=False))
-print("="*40)
-print("บันทึกไฟล์เรียบร้อย:")
-print("1. car_model_comparison.csv (ตารางสำหรับ Excel)")
-print("2. car_r2_plot.png (กราฟเปรียบเทียบ)")
-print("3. car_table_image.png (รูปภาพตารางสรุปผล)")
