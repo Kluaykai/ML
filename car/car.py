@@ -30,7 +30,6 @@ if missing_count > 0:
     print("  (ทำการลบแถวที่มีค่าว่างออกเรียบร้อยแล้ว)")
 
 # 2.2 ตรวจสอบค่าที่ผิดตรรกะ (Logical Anomaly Check)
-# เช็คว่ามีราคา หรือ เลขไมล์ ติดลบหรือเป็นศูนย์หรือไม่
 anomalies = df[(df['Price'] <= 0) | (df['Mileage'] < 0) | (df['Engine Size'] <= 0)]
 if not anomalies.empty:
     print(f"- พบข้อมูลผิดตรรกะ {len(anomalies)} แถว (กำลังลบออก...)")
@@ -39,7 +38,6 @@ else:
     print("- ตรวจสอบค่าผิดตรรกะ: ไม่พบความผิดปกติ (ราคา, เลขไมล์ และขนาดเครื่องยนต์ถูกต้อง)")
 
 # 2.3 ตรวจสอบและจัดการค่าที่สูง/ต่ำผิดปกติ (Outlier Detection using IQR)
-# เราจะใช้สูตรสถิติ IQR เพื่อหาค่าที่กระโดดออกจากกลุ่มมากเกินไปในคอลัมน์ Price
 Q1 = df['Price'].quantile(0.25)
 Q3 = df['Price'].quantile(0.75)
 IQR = Q3 - Q1
@@ -49,7 +47,6 @@ upper_bound = Q3 + 1.5 * IQR
 outliers = df[(df['Price'] < lower_bound) | (df['Price'] > upper_bound)]
 print(f"- ตรวจสอบ Outliers: พบราคาที่โดดผิดปกติ {len(outliers)} แถว")
 
-# กรองเอาเฉพาะข้อมูลที่อยู่ในช่วงปกติเพื่อความแม่นยำของโมเดล
 df = df[(df['Price'] >= lower_bound) & (df['Price'] <= upper_bound)]
 print(f"--- สรุป: คงเหลือข้อมูลคุณภาพดีทั้งหมด {len(df)} แถว ---")
 
@@ -67,10 +64,18 @@ cat_cols = ['Make', 'Model', 'Fuel Type', 'Transmission']
 for col in cat_cols:
     df[col] = le.fit_transform(df[col])
 
+# ตัดคอลัมน์ Year ออกเพราะเราใช้ Car_Age แทนแล้ว
+df_prepared = df.drop(columns=['Year'])
+
+# --- [ ส่วนที่เพิ่มเข้ามา: บันทึกไฟล์ข้อมูลที่แปลงเสร็จแล้ว ] ---
+# บันทึกข้อมูลที่สะอาดและแปลงเป็นตัวเลขแล้วลง CSV ก่อนเอาไปเทรน
+df_prepared.to_csv('transformed_car_data.csv', index=False, encoding='utf-8-sig')
+print(">>> บันทึกไฟล์ข้อมูลที่แปลงแล้วไว้ที่: transformed_car_data.csv (กรุณาตรวจสอบไฟล์นี้) <<<")
+# --------------------------------------------------------
+
 # แยกตัวแปรต้น (X) และตัวแปรเป้าหมาย (y)
-# เราลบ Year ออกเพราะใช้ Car_Age แทนแล้ว และลบ Price ออกเพราะเป็นคำถาม
-X = df.drop(['Price', 'Year'], axis=1)
-y = df['Price']
+X = df_prepared.drop(['Price'], axis=1)
+y = df_prepared['Price']
 
 # แบ่งข้อมูลสำหรับ Train (80%) และ Test (20%)
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -98,7 +103,6 @@ for name, model in models.items():
     model.fit(X_train_scaled, y_train)
     y_pred = model.predict(X_test_scaled)
     
-    # คำนวณค่าสถิติวัดผล
     r2 = r2_score(y_test, y_pred)
     mse = mean_squared_error(y_test, y_pred)
     mae = mean_absolute_error(y_test, y_pred)
@@ -117,17 +121,17 @@ for name, model in models.items():
 # ==========================================================
 results_df = pd.DataFrame(results)
 
-# 5.1 บันทึกตารางเป็นไฟล์ CSV สำหรับ Excel
+# 5.1 บันทึกตารางเปรียบเทียบเป็นไฟล์ CSV สำหรับ Excel
 results_df.to_csv('car_model_comparison.csv', index=False, encoding='utf-8-sig')
 
-# 5.2 สร้างกราฟแท่งเปรียบเทียบ R2 Score (ความแม่นยำ)
+# 5.2 สร้างกราฟแท่งเปรียบเทียบ R2 Score
 plt.figure(figsize=(10, 6))
 sns.barplot(x='Model', y='R2_Score', data=results_df, palette='magma')
 plt.title('Comparison of R2 Score (Car Price Prediction)')
-plt.ylim(0, 1.0) # สเกล 0 ถึง 1 เพื่อให้เห็นความต่างชัดเจน
+plt.ylim(0, 1.0)
 plt.savefig('car_r2_comparison.png')
 
-# 5.3 สร้างรูปภาพตารางสรุปผล (Table Image) เพื่อแปะใน Word ได้ทันที
+# 5.3 สร้างรูปภาพตารางสรุปผล
 fig, ax = plt.subplots(figsize=(10, 3))
 ax.axis('off')
 table = ax.table(cellText=results_df.values, colLabels=results_df.columns, loc='center', cellLoc='center')
@@ -138,9 +142,10 @@ plt.title('Model Performance Summary', pad=20)
 plt.savefig('car_result_table.png', bbox_inches='tight', dpi=300)
 
 print("\n" + "="*50)
-print("รันเสร็จสมบูรณ์! ตรวจสอบไฟล์ผลลัพธ์ในโฟลเดอร์:")
-print("1. car_model_comparison.csv (เปิดใน Excel)")
-print("2. car_r2_comparison.png (กราฟแท่ง)")
-print("3. car_result_table.png (รูปตารางสรุปสำหรับแปะรายงาน)")
+print("รันเสร็จสมบูรณ์!")
+print("1. transformed_car_data.csv (ข้อมูลที่แปลงแล้วก่อนเทรน)")
+print("2. car_model_comparison.csv (ตารางเปรียบเทียบผล)")
+print("3. car_r2_comparison.png (กราฟ)")
+print("4. car_result_table.png (รูปตารางสรุป)")
 print("="*50)
 print(results_df.to_string(index=False))
