@@ -14,6 +14,25 @@ warnings.filterwarnings('ignore')
 
 df = pd.read_csv('Car_Price_Prediction.csv')
 
+
+print("--- Data Exploration ---")
+print(df.info()) 
+print(df.describe()) 
+
+
+plt.figure(figsize=(10, 6))
+sns.histplot(df['Price'], kde=True, color='blue')
+plt.title('Distribution of Car Prices')
+plt.savefig('price_distribution.png')
+
+
+plt.figure(figsize=(10, 8))
+numeric_df = df.select_dtypes(include=[np.number])
+sns.heatmap(numeric_df.corr(), annot=True, cmap='coolwarm', fmt='.2f')
+plt.title('Correlation Heatmap')
+plt.savefig('correlation_heatmap.png')
+
+
 df = df.dropna()
 df = df[(df['Price'] > 0) & (df['Mileage'] >= 0) & (df['Engine Size'] > 0)]
 
