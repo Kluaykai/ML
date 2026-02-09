@@ -33,12 +33,17 @@ plt.title('Correlation Heatmap')
 plt.savefig('correlation_heatmap.png')
 
 
+initial_rows = len(df)
+
 df = df.drop_duplicates()
+rows_after_dup = len(df)
 
 if df.isnull().values.any():
     df = df.dropna()
+rows_after_null = len(df)
 
 df = df[(df['Price'] > 0) & (df['Mileage'] >= 0) & (df['Engine Size'] > 0)]
+rows_after_logic = len(df)
 
 numeric_cols = ['Price', 'Mileage', 'Engine Size']
 for col in numeric_cols:
@@ -46,12 +51,22 @@ for col in numeric_cols:
     Q3 = df[col].quantile(0.75)
     iqr = Q3 - Q1
     df = df[(df[col] >= Q1 - 1.5 * iqr) & (df[col] <= Q3 + 1.5 * iqr)]
+rows_after_outlier = len(df)
 
 categorical_cols = ['Make', 'Model', 'Fuel Type', 'Transmission']
 for col in categorical_cols:
     df[col] = df[col].astype(str).str.strip()
 
-print(df.shape)
+print("\n" + "="*30)
+print(" PRE-PROCESSING SUMMARY ")
+print("="*30)
+print(f"Original Data: {initial_rows} rows")
+print(f"1. Removed Duplicates: {initial_rows - rows_after_dup} rows")
+print(f"2. Removed Null Values: {rows_after_dup - rows_after_null} rows")
+print(f"3. Logic Filtering (Price/Mileage/Engine): {rows_after_null - rows_after_logic} rows")
+print(f"4. Outlier Removal: {rows_after_logic - rows_after_outlier} rows")
+print(f"Final Data Remaining: {len(df)} rows (Retention: {(len(df)/initial_rows)*100:.2f}%)")
+print("="*30 + "\n")
 
 df['Car_Age'] = 2026 - df['Year']
 
