@@ -33,13 +33,25 @@ plt.title('Correlation Heatmap')
 plt.savefig('correlation_heatmap.png')
 
 
-df = df.dropna()
+df = df.drop_duplicates()
+
+if df.isnull().values.any():
+    df = df.dropna()
+
 df = df[(df['Price'] > 0) & (df['Mileage'] >= 0) & (df['Engine Size'] > 0)]
 
-Q1 = df['Price'].quantile(0.25)
-Q3 = df['Price'].quantile(0.75)
-IQR = Q3 - Q1
-df = df[(df['Price'] >= Q1 - 1.5 * IQR) & (df['Price'] <= Q3 + 1.5 * IQR)]
+numeric_cols = ['Price', 'Mileage', 'Engine Size']
+for col in numeric_cols:
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
+    iqr = Q3 - Q1
+    df = df[(df[col] >= Q1 - 1.5 * iqr) & (df[col] <= Q3 + 1.5 * iqr)]
+
+categorical_cols = ['Make', 'Model', 'Fuel Type', 'Transmission']
+for col in categorical_cols:
+    df[col] = df[col].astype(str).str.strip()
+
+print(df.shape)
 
 df['Car_Age'] = 2026 - df['Year']
 
